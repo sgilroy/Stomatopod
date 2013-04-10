@@ -1,14 +1,31 @@
 /*
- * LightShoes
+ * Stomatopod
  * by Scott Gilroy
- * https://github.com/sgilroy/LightShoes
+ * https://github.com/sgilroy/Stomatopod
+ *
+ * Stomatopod is a system for controlling multiple wearable synchronized RGB LED strips
+ * connected wirelessly and manipulated by force sensitive resistors (FSRs) and other
+ * sensors and controls. The original system was designed for two shoe-worn nodes,
+ * plus a backpack node. Each node is a combination of an Arduino board, addressable
+ * RBG LED strip, a ZigBee, and some sensors/controls.
+ *
+ * This project takes its name from Stomatopods (also known as mantis shrimp) which
+ * have the most complex and sensitive visual systems of any organism on earth.
+ * The eyes of stomatopods have 16 different visual pigments (compared to just three
+ * in humans) allowing them to see a variety of colors and nuances of light well beyond
+ * that of other creatures.
  */
-// Based on the example code from Adafruit
+
+// The RGB LED strip code is based on the example code from Adafruit
 // to control LPD8806-based RGB LED Modules in a strip; originally
 // intended for the Adafruit Digital Programmable LED Belt Kit.
-// REQUIRES TIMER1 LIBRARY: http://www.arduino.cc/playground/Code/Timer1
-// ALSO REQUIRES LPD8806 LIBRARY, which should be included with this code.
 
+// REQUIRES TIMER1 LIBRARY: http://www.arduino.cc/playground/Code/Timer1
+// Also requires a library for the LED strip being used, which can be either:
+//   (1) Adafruit_NeoPixel library
+//   (2) LPD8806 library
+
+// From Limor "Ladyada" Fried:
 // I'm generally not fond of canned animation patterns.  Wanting something
 // more nuanced than the usual 8-bit beep-beep-boop-boop pixelly animation,
 // this program smoothly cycles through a set of procedural animated effects
@@ -17,29 +34,17 @@
 // programmers may have an easier time starting out with the 'strandtest'
 // program also included with the LPD8806 library.
 
-#include <avr/pgmspace.h>
-#include "SPI.h"
-#include "LPD8806.h"
-#include "TimerOne.h"
-//#include <MeetAndroid.h>
-//#include <MeetAndroidUart.h>
+#include <Adafruit_NeoPixel.h>
+//#include <avr/pgmspace.h>
+//#include "SPI.h"
+//#include "LPD8806.h"
+#include <TimerOne.h>
+#include <EasyTransfer.h>
 
-// declare MeetAndroid so that you can call functions with it
-//MeetAndroidUart meetAndroid;
 
-// For the LightShoes, we use two separate strips, each with a data and clock pin.
-const int dataLeftPin = 2;
-const int clockLeftPin = 3;
+const int dataPin = 4;
 
-const int dataRightPin = 15;
-const int clockRightPin = 14;
-
-const int dataLeft2Pin = 1;
-const int clockLeft2Pin = 0;
-const int dataRight2Pin = 3;
-const int clockRight2Pin = 2;
-
-const int forceLeftPin = 4;
+const int forceFrontPin = A0;
 
 const bool DEBUG_PRINTS = false;
 
@@ -48,25 +53,21 @@ int brightnessLimiter = 0;
 // Declare the number of pixels in strand; 32 = 32 pixels in a row.  The
 // LED strips have 32 LEDs per meter, but you can extend or cut the strip.
 //const int numPixels = 30; // backpack
-const int numPixels = 22; // shoes
+const int numPixels = 44; // shoes
 // 'const' makes subsequent array declarations possible, otherwise there
 // would be a pile of malloc() calls later.
 
 // Index (0 based) of the pixel at the front of the shoe. Used by some of the render effects.
-int frontOffset = 5;
+int frontOffset = 0;
 
 // Instantiate LED strips; arguments are the total number of pixels in strip,
 // the data pin number and clock pin number:
-LPD8806 stripLeft = LPD8806(numPixels, dataLeftPin, clockLeftPin);
-LPD8806 stripRight = LPD8806(numPixels, dataRightPin, clockRightPin);
-LPD8806 stripLeft2 = LPD8806(numPixels, dataLeft2Pin, clockLeft2Pin);
-LPD8806 stripRight2 = LPD8806(numPixels, dataRight2Pin, clockRight2Pin);
+//LPD8806 stripLeft = LPD8806(numPixels, dataLeftPin, clockLeftPin);
+//LPD8806 stripRight = LPD8806(numPixels, dataRightPin, clockRightPin);
+//LPD8806 stripLeft2 = LPD8806(numPixels, dataLeft2Pin, clockLeft2Pin);
+//LPD8806 stripRight2 = LPD8806(numPixels, dataRight2Pin, clockRight2Pin);
 
-// You can also use hardware SPI for ultra-fast writes by omitting the data
-// and clock pin arguments.  This is faster, but the data and clock are then
-// fixed to very specific pin numbers: on Arduino 168/328, data = pin 11,
-// clock = pin 13.  On Mega, data = pin 51, clock = pin 52.
-//LPD8806 stripLeft = LPD8806(numPixels);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, dataPin, NEO_GRB + NEO_KHZ800);
 
 // Principle of operation: at any given time, the LEDs depict an image or
 // animation effect (referred to as the "back" image throughout this code).
@@ -84,6 +85,11 @@ int  fxVars[3][50],             // Effect instance variables (explained later)
      tCounter   = -1,           // Countdown to next transition
      transitionTime;            // Duration (in frames) of current transition
 
+const static byte SYNCHRONIZED_EFFECT_BUFFERS = 3;
+const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
+
+const boolean startWithTransition = false;
+
 // function prototypes, leave these be :)
 void renderEffectSolidFill(byte idx);
 void renderEffectBluetoothLamp(byte idx);
@@ -96,6 +102,7 @@ void renderEffectWavyFlag(byte idx);
 void renderEffectThrob(byte idx);
 void renderEffectDebug1(byte idx);
 void renderEffectBlast(byte idx);
+
 void renderAlphaFade(void);
 void renderAlphaWipe(void);
 void renderAlphaDither(void);
@@ -112,6 +119,7 @@ long pickHue(long currentHue);
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
 //  renderEffectMonochromeChase,
+
 //  renderEffectMonochromeChase,
   renderEffectBlast,
 //  renderEffectBlast,
@@ -133,14 +141,15 @@ void (*renderEffect[])(byte) = {
   renderAlphaDither
   };
 
-/* FSR testing sketch. 
+/* ---------------------------------------------------------------------------------------------------
+   FSR Variables
  
-Connect one end of FSR to power, the other end to Analog 0.
-Then connect one end of a 10K resistor from Analog 0 to ground 
+Connect one end of FSR to power, the other end to an analog input pin.
+Then connect one end of a 10K resistor from the analog input pin to ground.
  
 For more information see www.ladyada.net/learn/sensors/fsr.html */
  
-int fsrPin = 21;     // the FSR and 10K pulldown are connected to a0
+int fsrPin = forceFrontPin;     // the FSR and 10K pulldown are connected to a0
 int fsrReading;     // the analog reading from the FSR resistor divider
 int fsrVoltage;     // the analog reading converted to voltage
 unsigned long fsrResistance;  // The voltage converted to resistance, can be very big so make "long"
@@ -150,7 +159,7 @@ int fsrStepFraction = 0;
 int fsrStepFractionMax = 60;
 bool gammaRespondsToForce = false;
 const bool debugFsrReading = false;
-const bool forceResistorInUse = false;
+const bool forceResistorInUse = true;
 
 int fsrReadingIndex = 0;
 #define numFsrReadings 5
@@ -163,6 +172,104 @@ long bluetoothColor = 0;
 long bluetoothColorHue; // hue 0-1535
 
 const int maxHue = 1535;
+
+// ------------------------------
+// EasyTransfer
+
+//create two objects
+EasyTransfer ETin, ETout; 
+
+struct EstablishMaster{
+  //put your variable definitions here for the data you want to receive
+  //THIS MUST BE EXACTLY THE SAME ON THE OTHER ARDUINO
+  int message;
+};
+
+struct StripPatternDescription{
+  byte message;
+  byte backImgIdx;
+  int tCounter;
+
+  byte backImgFunctionIndex;
+  byte frontImgFunctionIndex;
+  byte alphaFunctionIndex;
+  int transitionTime;
+  int fxVars[SYNCHRONIZED_EFFECT_BUFFERS][SYNCHRONIZED_EFFECT_VARIABLES];
+};
+
+const static int START_SLAVE_MODE = 1;
+const static int SYNCHRONIZE_PATTERN = 2;
+
+//give a name to the group of data
+StripPatternDescription rxdata;
+StripPatternDescription txdata;
+
+bool slaveMode = false;
+
+boolean inCallback = false;
+
+// ---------------------------------------------------------------------------
+//
+//                  SETUP
+//
+// ---------------------------------------------------------------------------
+
+void setup() {
+  for (int i = 0; i < numFsrReadings; i++)
+  {
+    fsrReadings[i] = 0;
+  }
+  
+  // for synchronizing between two Arduinos
+  Serial1.begin(9600);
+  
+  // for serial monitor/debugging
+  Serial.begin(9600);
+  
+  // Start up the LED strip.  Note that strip.show() is NOT called here --
+  // the callback function will be invoked immediately when attached, and
+  // the first thing the calback does is update the strip.
+  strip.begin();
+
+  // Initialize random number generator from a floating analog input.
+  randomSeed(analogRead(0));
+  memset(imgData, 0, sizeof(imgData)); // Clear image data
+  fxVars[backImgIdx][0] = 1;           // Mark back image as initialized
+
+  if (startWithTransition) {
+    tCounter = -1;
+  } else {
+    tCounter = 0;
+  }
+
+  // Timer1 is used so the strip will update at a known fixed frame rate.
+  // Each effect rendering function varies in processing complexity, so
+  // the timer allows smooth transitions between effects (otherwise the
+  // effects and transitions would jump around in speed...not attractive).
+  Timer1.initialize();
+//  Timer1.attachInterrupt(callback, 1000000 / 60); // 60 frames/second
+  Timer1.attachInterrupt(callback, 1000000 / 30); // 30 frames/second
+//  Timer1.attachInterrupt(callback, 1000000 / 5); // 30 frames/second
+//  Timer1.attachInterrupt(callback, 1000000 / 2); // 2 frames/second
+//  Timer1.attachInterrupt(callback, 1000000 * 2); // 1 frame / 2 seconds
+
+  //start the library, pass in the data details and the name of the serial port. Can be Serial, Serial1, Serial2, etc.
+  ETin.begin(details(rxdata), &Serial1);
+  ETout.begin(details(txdata), &Serial1);
+}
+
+void loop() {
+  // Do nothing.  All the work happens in the callback() function below,
+  // but we still need loop() here to keep the compiler happy.
+//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
+//  serialSynchronize(1 - backImgIdx);
+}
+
+
+// ---------------------------------------------------------------------------
+//
+//                  FSR
+//
 // ---------------------------------------------------------------------------
 
 void readForce() {
@@ -251,64 +358,6 @@ void readForce() {
   }
 }
 
-void setup() {
-//  meetAndroid.uart.begin(57600); 
-//  delay(100);
-//  meetAndroid.uart.print("$$$");
-//  delay(100);
-//  meetAndroid.uart.println("U,115200,N");
-  
-//  meetAndroid.uart.begin(115200); 
-//  delay(100);
-//  meetAndroid.uart.print("$$$");
-//  delay(100);
-//  meetAndroid.uart.println("U,57600,N");
-
-//  meetAndroid.uart.begin(57600); 
-  // register callback functions, which will be called when an associated event occurs.
-//  meetAndroid.registerFunction(meetAndroid_handleRed, 'o');
-//  meetAndroid.registerFunction(meetAndroid_handleGreen, 'p');  
-//  meetAndroid.registerFunction(meetAndroid_handleBlue, 'q'); 
-//  meetAndroid.registerFunction(meetAndroid_handleColor, 'c');
-
-  Serial.begin(115200);
-  if (DEBUG_PRINTS)
-  {
-    Serial.println("Test seri");
-  }
-  
-  for (int i = 0; i < numFsrReadings; i++)
-  {
-    fsrReadings[i] = 0;
-  }
-  
-  // Start up the LED strip.  Note that strip.show() is NOT called here --
-  // the callback function will be invoked immediately when attached, and
-  // the first thing the calback does is update the strip.
-  stripLeft.begin();
-  stripRight.begin();
-  stripLeft2.begin();
-  stripRight2.begin();
-
-  // Initialize random number generator from a floating analog input.
-  randomSeed(analogRead(0));
-  memset(imgData, 0, sizeof(imgData)); // Clear image data
-  fxVars[backImgIdx][0] = 1;           // Mark back image as initialized
-
-  // Timer1 is used so the strip will update at a known fixed frame rate.
-  // Each effect rendering function varies in processing complexity, so
-  // the timer allows smooth transitions between effects (otherwise the
-  // effects and transitions would jump around in speed...not attractive).
-  Timer1.initialize();
-  Timer1.attachInterrupt(callback, 1000000 / 60); // 60 frames/second
-}
-
-void loop() {
-  // Do nothing.  All the work happens in the callback() function below,
-  // but we still need loop() here to keep the compiler happy.
-//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
-}
-
 long pickHue(long currentHue)
 {
   return (bluetoothColor == 0 ? currentHue : bluetoothColorHue);
@@ -316,16 +365,18 @@ long pickHue(long currentHue)
 
 // Timer1 interrupt handler.  Called at equal intervals; 60 Hz by default.
 void callback() {
+  // don't do anything if we have not yet finished with the previous callback
+  if (inCallback) return;
+  
+  inCallback = true;
+  
   // Very first thing here is to issue the strip data generated from the
   // *previous* callback.  It's done this way on purpose because show() is
   // roughly constant-time, so the refresh will always occur on a uniform
   // beat with respect to the Timer1 interrupt.  The various effects
   // rendering and compositing code is not constant-time, and that
   // unevenness would be apparent if show() were called at the end.
-  stripLeft.show();
-  stripRight.show();
-  stripLeft2.show();
-  stripRight2.show();
+  strip.show(); // Initialize all pixels to 'off'
 
   byte frontImgIdx = 1 - backImgIdx,
        *backPtr    = &imgData[backImgIdx][0],
@@ -356,10 +407,7 @@ void callback() {
       r = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
       g = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
       b = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
-      stripLeft.setPixelColor(i, r, g, b);
-      stripRight.setPixelColor(i, r, g, b);
-      stripLeft2.setPixelColor(i, r, g, b);
-      stripRight2.setPixelColor(i, r, g, b);
+      strip.setPixelColor(i, r, g, b);
     }
   } else {
     // No transition in progress; just show back image
@@ -368,41 +416,118 @@ void callback() {
       r = gamma(*backPtr++);
       g = gamma(*backPtr++);
       b = gamma(*backPtr++);
-      stripLeft.setPixelColor(i, r, g, b);
-      stripRight.setPixelColor(i, r, g, b);
-      stripLeft2.setPixelColor(i, r, g, b);
-      stripRight2.setPixelColor(i, r, g, b);
+      strip.setPixelColor(i, r, g, b);
     }
   }
 
-  // Count up to next transition (or end of current one):
-  tCounter++;
-  if(tCounter == 0) { // Transition start
+  if (!slaveMode)
+  {
+    // Count up to next transition (or end of current one):
+    tCounter++;
+    if(tCounter == 0) { // Transition start
+      startImageTransition(frontImgIdx);
+    } else if(tCounter >= transitionTime) { // End transition
+      endImageTransition(frontImgIdx);
+    }
+  }
+  
+
+  if (DEBUG_PRINTS)
+  {
+    Serial.print("callback complete ");
+    Serial.print("dataPin ");
+    Serial.print(dataPin);
+    Serial.println();
+  }
+  readForce();
+//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
+
+  serialSynchronize(frontImgIdx);
+
+  inCallback = false;
+}
+
+void serialSynchronize(byte frontImgIdx)
+{
+  if (!slaveMode)
+  {
+    txdata.message = SYNCHRONIZE_PATTERN;
+    txdata.backImgIdx = backImgIdx;
+    txdata.tCounter = tCounter;
+  
+    txdata.backImgFunctionIndex = fxIdx[backImgIdx];
+    txdata.frontImgFunctionIndex = fxIdx[frontImgIdx];
+    txdata.alphaFunctionIndex = fxIdx[2];
+    txdata.transitionTime = transitionTime;
+    
+    for (int idx = 0; idx < SYNCHRONIZED_EFFECT_BUFFERS; idx++)
+    {
+      for (int i = 0; i < SYNCHRONIZED_EFFECT_VARIABLES; i++)
+      {
+        txdata.fxVars[idx][i] = fxVars[idx][i];
+      }
+    }
+    
+    //then we will go ahead and send that data out
+    ETout.sendData();
+  }
+  
+  //there's a loop here so that we run the recieve function more often then the 
+  //transmit function. This is important due to the slight differences in 
+  //the clock speed of different Arduinos. If we didn't do this, messages 
+  //would build up in the buffer and appear to cause a delay.
+  int receiveLoops = slaveMode ? 1 : 2;
+//  int receiveLoops = 2;
+  for(int i=0; i < receiveLoops; i++){
+    //remember, you could use an if() here to check for new data, this time it's not needed.
+    if (ETin.receiveData())
+    {
+      if (rxdata.message == SYNCHRONIZE_PATTERN)
+      {
+        slaveMode = true;
+        digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
+        
+        backImgIdx = rxdata.backImgIdx;
+        tCounter = rxdata.tCounter;
+      
+        fxIdx[backImgIdx] = rxdata.backImgFunctionIndex;
+        fxIdx[frontImgIdx] = rxdata.frontImgFunctionIndex;
+        fxIdx[2] = rxdata.alphaFunctionIndex;
+        transitionTime = rxdata.transitionTime;
+        
+        for (int idx = 0; idx < SYNCHRONIZED_EFFECT_BUFFERS; idx++)
+        {
+          for (int i = 0; i < SYNCHRONIZED_EFFECT_VARIABLES; i++)
+          {
+            fxVars[idx][i] = rxdata.fxVars[idx][i];
+          }
+        }
+      }
+    }
+    
+    //delay
+//    delay(10);
+  }
+}
+
+void startImageTransition(byte frontImgIdx)
+{
     // Randomly pick next image effect and alpha effect indices:
     fxIdx[frontImgIdx] = random((sizeof(renderEffect) / sizeof(renderEffect[0])));
     fxIdx[2]           = random((sizeof(renderAlpha)  / sizeof(renderAlpha[0])));
     transitionTime     = random(30, 181); // 0.5 to 3 second transitions
     fxVars[frontImgIdx][0] = 0; // Effect not yet initialized
     fxVars[2][0]           = 0; // Transition not yet initialized
-  } else if(tCounter >= transitionTime) { // End transition
+}
+
+void endImageTransition(byte frontImgIdx)
+{
     fxIdx[backImgIdx] = fxIdx[frontImgIdx]; // Move front effect index to back
     backImgIdx        = 1 - backImgIdx;     // Invert back index
     tCounter          = -120 - random(240); // Hold image 2 to 6 seconds
 //    tCounter          = -600; // Hold image 10 seconds
-  }
+}  
 
-  if (DEBUG_PRINTS)
-  {
-    Serial.print("callback complete ");
-    Serial.print("dataLeftPin ");
-    Serial.print(dataLeftPin);
-    Serial.print(" clockLeftPin ");
-    Serial.print(clockLeftPin);
-    Serial.println();
-  }
-//  readForce();
-//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
-}
 
 // ---------------------------------------------------------------------------
 // Image effect rendering functions.  Each effect is generated parametrically
@@ -537,11 +662,6 @@ void renderEffectBlast(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
     fxVars[idx][1] = random(maxHue + 1); // Random hue
-    // Number of repetitions (complete loops around color wheel);
-    // any more than 4 per meter just looks too chaotic.
-    // Store as distance around complete belt in half-degree units:
-//    fxVars[idx][2] = (1 + random(4 * ((numPixels + 31) / 32))) * 720;
-    fxVars[idx][2] = 1 * 720;
     // Frame-to-frame increment (speed) -- may be positive or negative,
     // but magnitude shouldn't be so small as to be boring.  It's generally
     // still less than a full pixel per frame, making motion very smooth.
@@ -555,6 +675,7 @@ void renderEffectBlast(byte idx) {
 //    fxVars[idx][5] = 15 + random(360); // wave period
 //    fxVars[idx][5] = 30 + random(150); // wave period (width)
     fxVars[idx][5] = 720 * 4 / numPixels; // wave period (width)
+//    fxVars[idx][5] = 720 * 8 / numPixels; // wave period (width)
 //    fxVars[idx][5] = random(720 * 2 / numPixels, 180); // wave period (width)
   }
 
@@ -565,7 +686,8 @@ void renderEffectBlast(byte idx) {
   long color;
   long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
-    alpha = getPointChaseAlpha(idx, (i + frontOffset + 1) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + (numPixels - frontOffset)) % numPixels, halfPeriod);
+    alpha = getPointChaseAlpha(idx, (i + frontOffset) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + frontOffset) % numPixels, halfPeriod);
+//    alpha = getPointChaseAlpha(idx, (i + frontOffset) % numPixels, halfPeriod);
     if (alpha > 255) alpha = 255;
     
     // Peaks of sine wave are white, troughs are black, mid-range
@@ -573,11 +695,14 @@ void renderEffectBlast(byte idx) {
 
     color = hsv2rgb(hue, 255, alpha);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
-//    *ptr++ = colorRed; *ptr++ = colorGreen; *ptr++ = colorBlue;
   }
 //  fxVars[idx][4] += fxVars[idx][3];
 //  fxVars[idx][4] %= 720;
-  fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 720);
+
+  // max force = half way around (360 half degrees)
+  if (!slaveMode)
+    fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 360);
+//  fxVars[idx][5] = map(fsrStepFraction, 720 / numPixels, fsrStepFractionMax, 0, 720 * 2);
 }
 
 void renderEffectBluetoothLamp(byte idx) {
@@ -624,60 +749,6 @@ void renderEffectBluetoothLamp(byte idx) {
   fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 720);
 }
 
-void renderEffectNewtonsCradle(byte idx) {
-  if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = false;
-    fxVars[idx][1] = random(maxHue + 1); // Random hue
-    // Number of repetitions (complete loops around color wheel);
-    // any more than 4 per meter just looks too chaotic.
-    // Store as distance around complete belt in half-degree units:
-//    fxVars[idx][2] = (1 + random(4 * ((numPixels + 31) / 32))) * 720;
-    fxVars[idx][2] = 1 * 720;
-    // Frame-to-frame increment (speed) -- may be positive or negative,
-    // but magnitude shouldn't be so small as to be boring.  It's generally
-    // still less than a full pixel per frame, making motion very smooth.
-//    fxVars[idx][3] = 1 + random(720) / numPixels;
-//    fxVars[idx][3] = 1;
-    fxVars[idx][3] = 4;
-    // Reverse direction half the time.
-    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
-    fxVars[idx][4] = 0; // Current position
-    fxVars[idx][0] = 1; // Effect initialized
-//    fxVars[idx][5] = 15 + random(360); // wave period
-//    fxVars[idx][5] = 30 + random(150); // wave period (width)
-    fxVars[idx][5] = 720 * 4 / numPixels; // wave period (width)
-//    fxVars[idx][5] = random(720 * 2 / numPixels, 180); // wave period (width)
-  }
-
-  byte *ptr = &imgData[idx][0];
-  int alpha;
-  int halfPeriod = fxVars[idx][5] / 2;
-  int distance;
-  long color;
-  long hue = pickHue(fxVars[idx][1]);
-  for(long i=0; i<numPixels; i++) {
-    alpha = getPointChaseAlpha(idx, (i + frontOffset + 1) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + (numPixels - frontOffset)) % numPixels, halfPeriod);
-    if (alpha > 255) alpha = 255;
-    
-    // Peaks of sine wave are white, troughs are black, mid-range
-    // values are pure hue (100% saturated).
-    color = hsv2rgb(hue, 255, alpha);
-    *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
-  }
-  fxVars[idx][4] += fxVars[idx][3];
-  fxVars[idx][4] %= 720;
-}
-
-int getPointChaseAlpha(byte idx, long i, int halfPeriod)
-{
-    // position of current pixel in 1/2 degrees
-    int offset = fxVars[idx][2] * i / numPixels;
-    int theta = offset - fxVars[idx][4];
-    int distance = (offset + fxVars[idx][4]) % fxVars[idx][2];
-    int foo = distance > fxVars[idx][5] || distance < 0 ? -127 : fixSin((distance * 360 / halfPeriod) - 180);
-    return 127 + foo;
-}
-
 void renderEffectPointChase(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
@@ -721,40 +792,6 @@ void renderEffectPointChase(byte idx) {
   }
   fxVars[idx][4] += fxVars[idx][3];
   fxVars[idx][4] %= 720;
-}
-
-void renderEffectMonochromeChase(byte idx) {
-  if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = false;
-    fxVars[idx][1] = random(maxHue + 1); // Random hue
-    // Number of repetitions (complete loops around color wheel);
-    // any more than 4 per meter just looks too chaotic.
-    // Store as distance around complete belt in half-degree units:
-    fxVars[idx][2] = (1 + random(4 * ((numPixels + 31) / 32))) * 720;
-    // Frame-to-frame increment (speed) -- may be positive or negative,
-    // but magnitude shouldn't be so small as to be boring.  It's generally
-    // still less than a full pixel per frame, making motion very smooth.
-    fxVars[idx][3] = 4 + random(fxVars[idx][1]) / numPixels;
-    // Reverse direction half the time.
-    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
-    fxVars[idx][4] = 0; // Current position
-    fxVars[idx][0] = 1; // Effect initialized
-  }
-
-  byte *ptr = &imgData[idx][0];
-  int  foo;
-  int theta;
-  long color, i;
-  long hue = pickHue(fxVars[idx][1]);
-  for(long i=0; i<numPixels; i++) {
-    theta = (fxVars[idx][4]) + fxVars[idx][2] * i / numPixels;
-    foo = fixSin(theta);
-    // Peaks of sine wave are white, troughs are black, mid-range
-    // values are pure hue (100% saturated).
-    color = hsv2rgb(hue, 255, 127 + foo);
-    *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
-  }
-  fxVars[idx][4] += fxVars[idx][3];
 }
 
 void renderEffectThrob(byte idx) {
