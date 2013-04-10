@@ -41,6 +41,7 @@
 #include <TimerOne.h>
 #include <EasyTransfer.h>
 
+const int fps = 30;
 
 const int dataPin = 4;
 
@@ -53,7 +54,7 @@ int brightnessLimiter = 0;
 // Declare the number of pixels in strand; 32 = 32 pixels in a row.  The
 // LED strips have 32 LEDs per meter, but you can extend or cut the strip.
 //const int numPixels = 30; // backpack
-const int numPixels = 44; // shoes
+const int numPixels = 42; // shoes
 // 'const' makes subsequent array declarations possible, otherwise there
 // would be a pile of malloc() calls later.
 
@@ -89,6 +90,7 @@ const static byte SYNCHRONIZED_EFFECT_BUFFERS = 3;
 const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
 
 const boolean startWithTransition = false;
+const boolean debugRenderEffects = true; // if true, use Serial.print to debug
 
 // function prototypes, leave these be :)
 void renderEffectSolidFill(byte idx);
@@ -102,6 +104,7 @@ void renderEffectWavyFlag(byte idx);
 void renderEffectThrob(byte idx);
 void renderEffectDebug1(byte idx);
 void renderEffectBlast(byte idx);
+void renderEffectBounce(byte idx);
 
 void renderAlphaFade(void);
 void renderAlphaWipe(void);
@@ -121,7 +124,7 @@ void (*renderEffect[])(byte) = {
 //  renderEffectMonochromeChase,
 
 //  renderEffectMonochromeChase,
-  renderEffectBlast,
+//  renderEffectBlast,
 //  renderEffectBlast,
 //  renderEffectBlast,
 //  renderEffectBlast,
@@ -132,6 +135,7 @@ void (*renderEffect[])(byte) = {
 //  renderEffectNewtonsCradle,
 //  renderEffectWavyFlag,
 //  renderEffectThrob,
+  renderEffectBounce,
 
 //  renderEffectDebug1
 },
@@ -247,10 +251,8 @@ void setup() {
   // the timer allows smooth transitions between effects (otherwise the
   // effects and transitions would jump around in speed...not attractive).
   Timer1.initialize();
-//  Timer1.attachInterrupt(callback, 1000000 / 60); // 60 frames/second
-  Timer1.attachInterrupt(callback, 1000000 / 30); // 30 frames/second
-//  Timer1.attachInterrupt(callback, 1000000 / 5); // 30 frames/second
-//  Timer1.attachInterrupt(callback, 1000000 / 2); // 2 frames/second
+  
+  Timer1.attachInterrupt(callback, 1000000 / fps);
 //  Timer1.attachInterrupt(callback, 1000000 * 2); // 1 frame / 2 seconds
 
   //start the library, pass in the data details and the name of the serial port. Can be Serial, Serial1, Serial2, etc.

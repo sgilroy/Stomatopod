@@ -50,8 +50,6 @@ void renderEffectNewtonsCradle(byte idx) {
     if (alpha < 0) alpha = 0;
 //    alpha = 255;
     
-    // Peaks of sine wave are white, troughs are black, mid-range
-    // values are pure hue (100% saturated).
     color = hsv2rgb(hue, 255, alpha);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }

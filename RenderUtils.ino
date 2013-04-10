@@ -15,7 +15,7 @@ int getPointChaseAlpha(byte idx, long i, int halfPeriod)
 //    int foo = fixSin(theta);
 
   // distance from start of sine wave to current pixel in half degrees
-  int distance = (720 + offset - fxVars[idx][4]) % 720;
+  int distance = (720 - offset - fxVars[idx][4]) % 720;
 //  int distance = (720 + offset - fxVars[idx][4]);
   int foo = distance > halfPeriod || distance < 0 ? -127 : fixSin((distance * 360 / halfPeriod) - 180);
 //  int foo = fixSin((distance * 360 / halfPeriod) - 180);
