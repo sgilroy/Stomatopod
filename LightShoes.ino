@@ -22,10 +22,10 @@
 #include "LPD8806.h"
 #include "TimerOne.h"
 //#include <MeetAndroid.h>
-#include <MeetAndroidUart.h>
+//#include <MeetAndroidUart.h>
 
 // declare MeetAndroid so that you can call functions with it
-MeetAndroidUart meetAndroid;
+//MeetAndroidUart meetAndroid;
 
 // For the LightShoes, we use two separate strips, each with a data and clock pin.
 const int dataLeftPin = 2;
@@ -112,18 +112,18 @@ long pickHue(long currentHue);
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
 //  renderEffectMonochromeChase,
-  renderEffectMonochromeChase,
+//  renderEffectMonochromeChase,
+  renderEffectBlast,
 //  renderEffectBlast,
 //  renderEffectBlast,
 //  renderEffectBlast,
-//  renderEffectBlast,
-  renderEffectSolidFill,
+//  renderEffectSolidFill,
 //  renderEffectRainbow,
-  renderEffectSineWaveChase,
-  renderEffectPointChase,
-  renderEffectNewtonsCradle,
-  renderEffectWavyFlag,
-  renderEffectThrob,
+//  renderEffectSineWaveChase,
+//  renderEffectPointChase,
+//  renderEffectNewtonsCradle,
+//  renderEffectWavyFlag,
+//  renderEffectThrob,
 
 //  renderEffectDebug1
 },
@@ -258,7 +258,7 @@ void setup() {
 //  delay(100);
 //  meetAndroid.uart.println("U,115200,N");
   
-  meetAndroid.uart.begin(115200); 
+//  meetAndroid.uart.begin(115200); 
 //  delay(100);
 //  meetAndroid.uart.print("$$$");
 //  delay(100);
@@ -269,7 +269,7 @@ void setup() {
 //  meetAndroid.registerFunction(meetAndroid_handleRed, 'o');
 //  meetAndroid.registerFunction(meetAndroid_handleGreen, 'p');  
 //  meetAndroid.registerFunction(meetAndroid_handleBlue, 'q'); 
-  meetAndroid.registerFunction(meetAndroid_handleColor, 'c');
+//  meetAndroid.registerFunction(meetAndroid_handleColor, 'c');
 
   Serial.begin(115200);
   if (DEBUG_PRINTS)
@@ -309,74 +309,10 @@ void loop() {
 //  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 }
 
-/*
- * Whenever the multicolor lamp app changes the color
- * this function will be called
- */
-void meetAndroid_handleColor(byte flag, byte numOfValues)
-{
-  Serial.print("meetAndroid_handleColor ");
-  Serial.print(flag);
-  Serial.print(" numOfValues = ");
-  Serial.print((int)numOfValues);
-  Serial.print(" Buffer length = ");
-  Serial.print(meetAndroid.bufferLength());
-  Serial.print(", ");
-  if (meetAndroid.bufferLength() >= 2)
-  {
-    bluetoothColor = meetAndroid.getLong();
-    bluetoothColorHue = rgb2hsv(bluetoothColor);
-  }
-//  byte redByte = meetAndroid.getChar();
-  byte r = bluetoothColor << 16, g = bluetoothColor << 8, b = bluetoothColor;
-  Serial.print("Red = ");
-  Serial.print((int)r);
-  Serial.print(" Green = ");
-  Serial.print((int)g);
-  Serial.print(" Blue = ");
-  Serial.print((int)b);
-  Serial.print(" Hue = ");
-  Serial.println(bluetoothColorHue);
-}
-
 long pickHue(long currentHue)
 {
   return (bluetoothColor == 0 ? currentHue : bluetoothColorHue);
 }
-
-
-/*
- * Whenever the multicolor lamp app changes the red value
- * this function will be called
- */
-void meetAndroid_handleRed(byte flag, byte numOfValues)
-{
-  Serial.print("Buffer length = ");
-  Serial.print(meetAndroid.bufferLength());
-  Serial.print(", ");
-  colorRed = meetAndroid.getInt();
-  Serial.print("Red = ");
-  Serial.println((int)colorRed);  
-}
-
-/*
- * Whenever the multicolor lamp app changes the green value
- * this function will be called
- */
-void meetAndroid_handleGreen(byte flag, byte numOfValues)
-{
-  colorGreen = meetAndroid.getInt();
-}
-
-/*
- * Whenever the multicolor lamp app changes the blue value
- * this function will be called
- */
-void meetAndroid_handleBlue(byte flag, byte numOfValues)
-{
-  colorBlue = meetAndroid.getInt();
-}
-
 
 // Timer1 interrupt handler.  Called at equal intervals; 60 Hz by default.
 void callback() {
@@ -465,7 +401,7 @@ void callback() {
     Serial.println();
   }
 //  readForce();
-  meetAndroid.receive(); // you need to keep this in your loop() to receive events
+//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 }
 
 // ---------------------------------------------------------------------------
