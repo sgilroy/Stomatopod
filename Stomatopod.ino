@@ -47,7 +47,9 @@ const int fps = 30;
 
 const int dataPin = 4;
 
+// the FSR and 10K pulldown are connected to a0
 const int frontFsrPin = A0;
+const int backFsrPin = A1;
 
 const bool DEBUG_PRINTS = false;
 
@@ -94,6 +96,8 @@ const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
 const boolean startWithTransition = false;
 const boolean debugRenderEffects = true; // if true, use Serial.print to debug
 
+boolean autoTransition = true; // if true, transition to a different render effect after some time elapses
+
 // function prototypes, leave these be :)
 void renderEffectSolidFill(byte idx);
 void renderEffectBluetoothLamp(byte idx);
@@ -108,6 +112,7 @@ void renderEffectDebug1(byte idx);
 void renderEffectBlast(byte idx);
 void renderEffectBounce(byte idx);
 void renderEffectClickVisualization(byte idx);
+void renderEffectPressureVis(byte idx);
 
 void renderAlphaFade(void);
 void renderAlphaWipe(void);
@@ -124,22 +129,18 @@ long pickHue(long currentHue);
 // each of these appears later in this file.  Just a few to start with...
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
-//  renderEffectMonochromeChase,
-
-//  renderEffectMonochromeChase,
-//  renderEffectBlast,
-//  renderEffectBlast,
-//  renderEffectBlast,
-//  renderEffectBlast,
-//  renderEffectSolidFill,
-//  renderEffectRainbow,
-//  renderEffectSineWaveChase,
-//  renderEffectPointChase,
-//  renderEffectNewtonsCradle,
-//  renderEffectWavyFlag,
-//  renderEffectThrob,
-//  renderEffectBounce,
   renderEffectClickVisualization,
+  renderEffectMonochromeChase,
+  renderEffectBlast,
+  renderEffectSolidFill,
+  renderEffectRainbow,
+  renderEffectSineWaveChase,
+  renderEffectPointChase,
+  renderEffectNewtonsCradle,
+  renderEffectWavyFlag,
+  renderEffectThrob,
+  renderEffectBounce,
+  renderEffectPressureVis,
 
 //  renderEffectDebug1
 },
@@ -157,25 +158,25 @@ Then connect one end of a 10K resistor from the analog input pin to ground.
  
 For more information see www.ladyada.net/learn/sensors/fsr.html */
  
-int fsrPin = frontFsrPin;     // the FSR and 10K pulldown are connected to a0
-int fsrReading;     // the analog reading from the FSR resistor divider
-int fsrVoltage;     // the analog reading converted to voltage
-unsigned long fsrResistance;  // The voltage converted to resistance, can be very big so make "long"
-unsigned long fsrConductance; 
-long fsrForce;       // Finally, the resistance converted to force
-int fsrStepFraction = 0;
-int fsrStepFractionMax = 60;
-bool gammaRespondsToForce = false;
-const bool debugFsrReading = true;
 const bool forceResistorInUse = true;
+const bool debugFsrReading = true;
 
+int frontFsrStepFraction = 0;
+int backFsrStepFraction = 0;
+const int fsrStepFractionMax = 60;
+bool gammaRespondsToForce = false;
+
+// optional filtering to smooth out values if readings are too unstable
+#define numFsrReadings 1
+#if numFsrReadings > 1
 int fsrReadingIndex = 0;
-#define numFsrReadings 5
 int fsrReadings[numFsrReadings];
+#endif
 
-
-ClickButtonFsr frontButton(frontFsrPin, 300, 500);
+ClickButtonFsr frontButton = ClickButtonFsr(frontFsrPin, 300, 500);
 int frontButtonClicks = 0;
+ClickButtonFsr backButton = ClickButtonFsr(backFsrPin, 300, 500);
+int backButtonClicks = 0;
 int clickVisualization = 0;
 
 byte colorRed = 0;
@@ -228,11 +229,13 @@ boolean inCallback = false;
 // ---------------------------------------------------------------------------
 
 void setup() {
+#if numFsrReadings > 1
   for (int i = 0; i < numFsrReadings; i++)
   {
     fsrReadings[i] = 0;
   }
-  
+#endif
+
   // for synchronizing between two Arduinos
   Serial1.begin(9600);
   
@@ -275,9 +278,11 @@ void loop() {
 //  meetAndroid.receive(); // you need to keep this in your loop() to receive events
   
   frontButton.Update();
+  backButton.Update();
 
   // Save click codes in frontButtonClicks, as click codes are reset at next Update()
   if (frontButton.click != 0) frontButtonClicks = frontButton.click;
+  if (backButton.click != 0) backButtonClicks = backButton.click;
 }
 
 
@@ -287,7 +292,14 @@ void loop() {
 //
 // ---------------------------------------------------------------------------
 
-void readForce() {
+int readForce(int fsrPin) {
+  int fsrStepFraction = 0;
+  int fsrReading;     // the analog reading from the FSR resistor divider
+  int fsrVoltage;     // the analog reading converted to voltage
+  unsigned long fsrResistance;  // The voltage converted to resistance, can be very big so make "long"
+  unsigned long fsrConductance; 
+  long fsrForce;       // Finally, the resistance converted to force
+  
   fsrReading = analogRead(fsrPin);  
   if (debugFsrReading)
   {
@@ -295,7 +307,7 @@ void readForce() {
     Serial.println(fsrReading);
   }
   
-  if (true)
+  #if numFsrReadings > 1
   {
     long fsrReadingSum = 0;
     long fsrReadingAvg;
@@ -314,6 +326,7 @@ void readForce() {
       Serial.println(fsrReading);
     }
   }
+  #endif
  
   // analog voltage reading ranges from about 0 to 1023 which maps to 0V to 5V (= 5000mV)
   fsrVoltage = map(fsrReading, 0, 1023, 0, 5000);
@@ -374,6 +387,8 @@ void readForce() {
   {
     Serial.println("--------------------");
   }
+  
+  return fsrStepFraction;
 }
 
 long pickHue(long currentHue)
@@ -443,11 +458,14 @@ void callback() {
   if (!slaveMode)
   {
     // Count up to next transition (or end of current one):
-    tCounter++;
-    if(tCounter == 0) { // Transition start
-      startImageTransition(frontImgIdx);
-    } else if(tCounter >= transitionTime) { // End transition
-      endImageTransition(frontImgIdx);
+    if (autoTransition || tCounter >= 0)
+    {
+      tCounter++;
+      if(tCounter == 0) { // Transition start
+        startImageTransition(frontImgIdx);
+      } else if(tCounter >= transitionTime) { // End transition
+        endImageTransition(frontImgIdx);
+      }
     }
   }
   
@@ -459,7 +477,8 @@ void callback() {
     Serial.print(dataPin);
     Serial.println();
   }
-  readForce();
+  frontFsrStepFraction = readForce(frontFsrPin);
+  backFsrStepFraction = readForce(backFsrPin);
 //  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 
   serialSynchronize(frontImgIdx);
@@ -477,21 +496,46 @@ void handleClicks()
     }
     else if (frontButtonClicks == -1 && clickVisualization > 0)
     {
+      // TODO: make the long press work again (not sure what broke this, but this does not seem to execute ever
       clickVisualization--;
     }
     
     frontButtonClicks = 0;
   }
+
+  if (backButtonClicks != 0)
+  {
+    byte frontImgIdx = 1 - backImgIdx;
+    if (backButtonClicks == 2)
+    {
+      tCounter = 0;
+      startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
+      autoTransition = false;
+    }
+    else if (backButtonClicks == 3)
+    {
+      tCounter = -1;
+      autoTransition = true;
+    }
+    
+    backButtonClicks = 0;
+  }
+}
+
+void startImageTransition(byte frontImgIdx, byte effectFunctionIndex, int inTransitionTime)
+{
+    fxIdx[frontImgIdx] = effectFunctionIndex;
+    fxIdx[2]           = random((sizeof(renderAlpha)  / sizeof(renderAlpha[0])));
+    transitionTime     = inTransitionTime;
+    fxVars[frontImgIdx][0] = 0; // Effect not yet initialized
+    fxVars[2][0]           = 0; // Transition not yet initialized
 }
 
 void startImageTransition(byte frontImgIdx)
 {
     // Randomly pick next image effect and alpha effect indices:
-    fxIdx[frontImgIdx] = random((sizeof(renderEffect) / sizeof(renderEffect[0])));
-    fxIdx[2]           = random((sizeof(renderAlpha)  / sizeof(renderAlpha[0])));
-    transitionTime     = random(30, 181); // 0.5 to 3 second transitions
-    fxVars[frontImgIdx][0] = 0; // Effect not yet initialized
-    fxVars[2][0]           = 0; // Transition not yet initialized
+    // 0.5 to 3 second transitions
+    startImageTransition(frontImgIdx, random((sizeof(renderEffect) / sizeof(renderEffect[0]))), random(fps / 2, fps * 3));
 }
 
 void endImageTransition(byte frontImgIdx)
@@ -701,7 +745,7 @@ void renderEffectBlast(byte idx) {
 
   // max force = half way around (360 half degrees)
   if (!slaveMode)
-    fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 360);
+    fxVars[idx][4] = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, 360);
 //  fxVars[idx][5] = map(fsrStepFraction, 720 / numPixels, fsrStepFractionMax, 0, 720 * 2);
 }
 
@@ -746,7 +790,7 @@ void renderEffectBluetoothLamp(byte idx) {
 //    *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
     *ptr++ = colorRed; *ptr++ = colorGreen; *ptr++ = colorBlue;
   }
-  fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 720);
+  fxVars[idx][4] = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, 720);
 }
 
 void renderEffectPointChase(byte idx) {

@@ -128,7 +128,7 @@ PROGMEM prog_uchar gammaTable[]  = {
 // the compiler permits forward references to functions but not data.
 inline byte gamma(byte x) {
   if (gammaRespondsToForce && forceResistorInUse)
-    return pgm_read_byte(&gammaTable[x]) * fsrStepFraction / fsrStepFractionMax >> brightnessLimiter;
+    return pgm_read_byte(&gammaTable[x]) * frontFsrStepFraction / fsrStepFractionMax >> brightnessLimiter;
   else
     return pgm_read_byte(&gammaTable[x]) >> brightnessLimiter;
 }
