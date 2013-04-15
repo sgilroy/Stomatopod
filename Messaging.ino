@@ -33,7 +33,10 @@ void serialSynchronize(byte frontImgIdx)
     {
       if (rxdata.message == SYNCHRONIZE_PATTERN)
       {
-        slaveMode = true;
+        if (!slaveMode) {
+          slaveMode = true;
+          saveSettings();
+        }
         digitalWrite(13, HIGH);   // turn the LED on (HIGH is the voltage level)
         
         backImgIdx = rxdata.backImgIdx;

@@ -42,6 +42,36 @@
 #include <EasyTransfer.h>
 #include <ClickButtonFsr.h>
 #include <Streaming.h>
+#include <EEPROMEx.h>
+
+#define debugSettings true
+
+// ID of the settings block
+#define SETTINGS_VERSION "Stmtpd#01"
+String currentSettingsVersion = SETTINGS_VERSION;
+
+// Tell it where to store your config data in EEPROM
+#define memoryBase 32
+
+bool settingsLoaded  = false;
+int settingsAddress = 0;
+int transitionEndCounter = 0;
+int transitionStartCounter = 0;
+int droppedFrames = 0;
+
+struct Settings {
+    boolean slaveMode;          // The variables of your settings
+    boolean autoTransition;
+    int effectIndex;
+    char version[10];   // This is for mere detection if they are your settings
+} settings = { 
+    false,
+    true,
+    0,
+    SETTINGS_VERSION,
+};
+
+boolean initialEffectQueued = false;
 
 const int fps = 30;
 
@@ -94,7 +124,7 @@ const static byte SYNCHRONIZED_EFFECT_BUFFERS = 3;
 const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
 
 const boolean startWithTransition = false;
-const boolean debugRenderEffects = true; // if true, use Serial.print to debug
+const boolean debugRenderEffects = false; // if true, use Serial.print to debug
 
 boolean autoTransition = true; // if true, transition to a different render effect after some time elapses
 
@@ -159,7 +189,7 @@ Then connect one end of a 10K resistor from the analog input pin to ground.
 For more information see www.ladyada.net/learn/sensors/fsr.html */
  
 const bool forceResistorInUse = true;
-const bool debugFsrReading = true;
+#define debugFsrReading false
 
 int frontFsrStepFraction = 0;
 int backFsrStepFraction = 0;
@@ -218,7 +248,7 @@ const static int SYNCHRONIZE_PATTERN = 2;
 StripPatternDescription rxdata;
 StripPatternDescription txdata;
 
-bool slaveMode = false;
+boolean slaveMode = false;
 
 boolean inCallback = false;
 
@@ -229,6 +259,21 @@ boolean inCallback = false;
 // ---------------------------------------------------------------------------
 
 void setup() {
+  EEPROM.setMemPool(memoryBase, EEPROMSizeATmega328);
+  settingsAddress  = EEPROM.getAddress(sizeof(Settings));
+  settingsLoaded = loadSettings();
+  
+  if (settingsLoaded)
+  {
+    slaveMode = settings.slaveMode;
+    autoTransition = settings.autoTransition;
+    initialEffectQueued = true;
+  }
+  else
+  {
+    settings.slaveMode = slaveMode;
+  }
+  
 #if numFsrReadings > 1
   for (int i = 0; i < numFsrReadings; i++)
   {
@@ -272,6 +317,45 @@ void setup() {
   outTransfer.begin(details(txdata), &Serial1);
 }
 
+bool loadSettings() {
+  EEPROM.readBlock(settingsAddress, settings);
+//  Serial << "loadSettings complete -------------" << endl;
+//  printSettings();
+  return (String(settings.version) == currentSettingsVersion);
+//  return false;
+}
+
+void printSettings() {
+  Serial << "  settingsLoaded = " << settingsLoaded << endl;
+  Serial << "  initialEffectQueued = " << initialEffectQueued << endl;
+  Serial << "  tCounter = " << tCounter << endl;
+  Serial << "  droppedFrames = " << droppedFrames << endl;
+  Serial << "  version = " << settings.version << endl;
+  Serial << "  slaveMode = " << settings.slaveMode << endl;
+  Serial << "  effectIndex = " << settings.effectIndex << endl;
+  Serial << "  autoTransition = " << settings.autoTransition << endl;
+}
+
+void saveSettings() {
+  currentSettingsVersion.toCharArray(settings.version, sizeof(settings.version));
+  settings.slaveMode = slaveMode;
+  settings.autoTransition = autoTransition;
+  
+  if (tCounter >= 0) {
+    byte frontImgIdx = 1 - backImgIdx;
+    settings.effectIndex = fxIdx[frontImgIdx];
+  }
+  else
+    settings.effectIndex = fxIdx[backImgIdx];
+    
+  EEPROM.updateBlock(settingsAddress, settings);
+  #if debugSettings
+    Serial << "saveSettings complete -------------" << endl;
+    printSettings();
+  #endif
+}
+
+
 void loop() {
   // All rendering happens in the callback() function below.
 
@@ -301,11 +385,12 @@ int readForce(int fsrPin) {
   long fsrForce;       // Finally, the resistance converted to force
   
   fsrReading = analogRead(fsrPin);  
-  if (debugFsrReading)
+  #if (debugFsrReading)
   {
     Serial.print("Analog reading = ");
     Serial.println(fsrReading);
   }
+  #endif
   
   #if numFsrReadings > 1
   {
@@ -320,46 +405,51 @@ int readForce(int fsrPin) {
     fsrReadingAvg = fsrReadingSum / numFsrReadings;
     fsrReading = (int)fsrReadingAvg;
   
-    if (debugFsrReading)
+    #if (debugFsrReading)
     {
       Serial.print("Average reading = ");
       Serial.println(fsrReading);
     }
+    #endif
   }
   #endif
  
   // analog voltage reading ranges from about 0 to 1023 which maps to 0V to 5V (= 5000mV)
   fsrVoltage = map(fsrReading, 0, 1023, 0, 5000);
-  if (debugFsrReading)
+  #if (debugFsrReading)
   {
     Serial.print("Voltage reading in mV = ");
     Serial.println(fsrVoltage);  
   }
+  #endif
  
   if (fsrVoltage == 0) {
-    if (debugFsrReading)
+    #if (debugFsrReading)
     {
       Serial.println("No pressure");  
     }
+    #endif
   } else {
     // The voltage = Vcc * R / (R + FSR) where R = 10K and Vcc = 5V
     // so FSR = ((Vcc - V) * R) / V        yay math!
     fsrResistance = 5000 - fsrVoltage;     // fsrVoltage is in millivolts so 5V = 5000mV
     fsrResistance *= 10000;                // 10K resistor
     fsrResistance /= fsrVoltage;
-    if (debugFsrReading)
+    #if (debugFsrReading)
     {
       Serial.print("FSR resistance in ohms = ");
       Serial.println(fsrResistance);
     }
+    #endif
  
     fsrConductance = 1000000;           // we measure in micromhos so 
     fsrConductance /= fsrResistance;
-    if (debugFsrReading)
+    #if (debugFsrReading)
     {
       Serial.print("Conductance in microMhos: ");
       Serial.println(fsrConductance);
     }
+    #endif
  
     // Use the two FSR guide graphs to approximate the force
 //    if (fsrConductance <= 1000) {
@@ -370,7 +460,7 @@ int readForce(int fsrPin) {
 //      fsrForce /= 30;
 //    }
     fsrStepFraction = fsrForce > fsrStepFractionMax ? fsrStepFractionMax : fsrForce;
-    if (debugFsrReading)
+    #if (debugFsrReading)
     {
       Serial.print("Force in Newtons: ");
       Serial.println(fsrForce);      
@@ -379,14 +469,16 @@ int readForce(int fsrPin) {
   //    Serial.print("Step Fraction: ");
   //    Serial.println(fsrStepFraction);      
       Serial << "ClickButtonFsr value: " << frontButton.fsrValue << endl;
-      Serial << "ClickButtonFsr btnFlick: " << frontButton.btnFlick << endl;
-      Serial << "ClickButtonFsr depressed: " << frontButton.depressed << endl;
+      Serial << " btnFlick: " << frontButton.btnFlick << endl;
+      Serial << " depressed: " << frontButton.depressed << endl;
     }
+    #endif
   }
-  if (debugFsrReading)
+  #if (debugFsrReading)
   {
     Serial.println("--------------------");
   }
+  #endif
   
   return fsrStepFraction;
 }
@@ -399,7 +491,10 @@ long pickHue(long currentHue)
 // Timer1 interrupt handler.  Called at equal intervals; 60 Hz by default.
 void callback() {
   // don't do anything if we have not yet finished with the previous callback
-  if (inCallback) return;
+  if (inCallback) {
+    droppedFrames++;
+    return;
+  }
   
   inCallback = true;
   
@@ -509,8 +604,8 @@ void handleClicks()
     if (backButtonClicks == 2)
     {
       tCounter = 0;
-      startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
       autoTransition = false;
+      startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
     }
     else if (backButtonClicks == 3)
     {
@@ -524,26 +619,57 @@ void handleClicks()
 
 void startImageTransition(byte frontImgIdx, byte effectFunctionIndex, int inTransitionTime)
 {
-    fxIdx[frontImgIdx] = effectFunctionIndex;
-    fxIdx[2]           = random((sizeof(renderAlpha)  / sizeof(renderAlpha[0])));
-    transitionTime     = inTransitionTime;
-    fxVars[frontImgIdx][0] = 0; // Effect not yet initialized
-    fxVars[2][0]           = 0; // Transition not yet initialized
+  fxIdx[frontImgIdx] = effectFunctionIndex;
+  fxIdx[2]           = random((sizeof(renderAlpha)  / sizeof(renderAlpha[0])));
+  transitionTime     = inTransitionTime;
+  fxVars[frontImgIdx][0] = 0; // Effect not yet initialized
+  fxVars[2][0]           = 0; // Transition not yet initialized
+
+  transitionStartCounter++;
+  Serial << "transitionStartCounter " << transitionStartCounter << endl;
+  saveSettings();
 }
 
 void startImageTransition(byte frontImgIdx)
 {
-    // Randomly pick next image effect and alpha effect indices:
-    // 0.5 to 3 second transitions
-    startImageTransition(frontImgIdx, random((sizeof(renderEffect) / sizeof(renderEffect[0]))), random(fps / 2, fps * 3));
+  int effectFunctionIndex = -1;
+  int inTransitionTime;
+  
+  if (settingsLoaded && initialEffectQueued)
+  {
+    if (settings.effectIndex >= 0 && settings.effectIndex < (sizeof(renderEffect) / sizeof(renderEffect[0]))) {
+      effectFunctionIndex = settings.effectIndex;
+      inTransitionTime = fps / 2;
+    }
+    initialEffectQueued = false;
+  }
+  
+  // Randomly pick next image effect and alpha effect indices:
+  // 0.5 to 3 second transitions
+  if (effectFunctionIndex == -1) {
+    effectFunctionIndex = random((sizeof(renderEffect) / sizeof(renderEffect[0])));
+    inTransitionTime = random(fps / 2, fps * 3);
+  }
+  
+  startImageTransition(frontImgIdx, effectFunctionIndex, inTransitionTime);
 }
 
 void endImageTransition(byte frontImgIdx)
 {
-    fxIdx[backImgIdx] = fxIdx[frontImgIdx]; // Move front effect index to back
-    backImgIdx        = 1 - backImgIdx;     // Invert back index
-    tCounter          = -120 - random(240); // Hold image 2 to 6 seconds
+  if (settingsLoaded && initialEffectQueued)
+  {
+    if (settings.effectIndex >= 0 && settings.effectIndex < (sizeof(renderEffect) / sizeof(renderEffect[0]))) {
+      fxIdx[frontImgIdx] = settings.effectIndex;
+    }
+    initialEffectQueued = false;
+  }
+
+  fxIdx[backImgIdx] = fxIdx[frontImgIdx]; // Move front effect index to back
+  backImgIdx        = 1 - backImgIdx;     // Invert back index
+  tCounter          = -120 - random(240); // Hold image 2 to 6 seconds
 //    tCounter          = -600; // Hold image 10 seconds
+  transitionEndCounter++;
+  Serial << "transitionEndCounter " << transitionEndCounter << endl;
 }  
 
 
@@ -641,7 +767,7 @@ void renderEffectDebug1(byte idx) {
 // practically part of the Geneva Convention by now.
 void renderEffectRainbow(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = true;
+    gammaRespondsToForce = false;
     // Number of repetitions (complete loops around color wheel); any
     // more than 4 per meter just looks too chaotic and un-rainbow-like.
     // Store as hue 'distance' around complete belt:
