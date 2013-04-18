@@ -47,7 +47,7 @@
 #define debugSettings true
 
 // ID of the settings block
-#define SETTINGS_VERSION "Stmtpd#01"
+#define SETTINGS_VERSION "Stmtpd#05"
 String currentSettingsVersion = SETTINGS_VERSION;
 
 // Tell it where to store your config data in EEPROM
@@ -126,7 +126,7 @@ const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
 const boolean startWithTransition = false;
 const boolean debugRenderEffects = false; // if true, use Serial.print to debug
 
-boolean autoTransition = true; // if true, transition to a different render effect after some time elapses
+boolean autoTransition = false; // if true, transition to a different render effect after some time elapses
 
 // function prototypes, leave these be :)
 void renderEffectSolidFill(byte idx);
@@ -143,6 +143,7 @@ void renderEffectBlast(byte idx);
 void renderEffectBounce(byte idx);
 void renderEffectClickVisualization(byte idx);
 void renderEffectPressureVis(byte idx);
+void renderEffectSlide(byte idx);
 
 void renderAlphaFade(void);
 void renderAlphaWipe(void);
@@ -159,6 +160,7 @@ long pickHue(long currentHue);
 // each of these appears later in this file.  Just a few to start with...
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
+  renderEffectSlide,
   renderEffectClickVisualization,
   renderEffectMonochromeChase,
   renderEffectBlast,
@@ -261,7 +263,7 @@ boolean inCallback = false;
 void setup() {
   EEPROM.setMemPool(memoryBase, EEPROMSizeATmega328);
   settingsAddress  = EEPROM.getAddress(sizeof(Settings));
-  settingsLoaded = loadSettings();
+//  settingsLoaded = loadSettings();
   
   if (settingsLoaded)
   {
@@ -281,10 +283,10 @@ void setup() {
   }
 #endif
 
-  // for synchronizing between two Arduinos
-  Serial1.begin(9600);
+  // for synchronizing between two Arduinos (RX/TX)
+  Serial1.begin(115200);
   
-  // for serial monitor/debugging
+  // for serial monitor/debugging via USB
   Serial.begin(9600);
   
   // Start up the LED strip.  Note that strip.show() is NOT called here --
@@ -826,53 +828,6 @@ void renderEffectSineWaveChase(byte idx) {
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
-}
-
-void renderEffectBlast(byte idx) {
-  if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = false;
-    fxVars[idx][1] = random(maxHue + 1); // Random hue
-    // Frame-to-frame increment (speed) -- may be positive or negative,
-    // but magnitude shouldn't be so small as to be boring.  It's generally
-    // still less than a full pixel per frame, making motion very smooth.
-//    fxVars[idx][3] = 1 + random(720) / numPixels;
-//    fxVars[idx][3] = 1;
-    fxVars[idx][3] = 4;
-    // Reverse direction half the time.
-    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
-    fxVars[idx][4] = 0; // Current position
-    fxVars[idx][0] = 1; // Effect initialized
-//    fxVars[idx][5] = 15 + random(360); // wave period
-//    fxVars[idx][5] = 30 + random(150); // wave period (width)
-    fxVars[idx][5] = 720 * 4 / numPixels; // wave period (width)
-//    fxVars[idx][5] = 720 * 8 / numPixels; // wave period (width)
-//    fxVars[idx][5] = random(720 * 2 / numPixels, 180); // wave period (width)
-  }
-
-  byte *ptr = &imgData[idx][0];
-  int alpha;
-  int halfPeriod = fxVars[idx][5] / 2;
-  int distance;
-  long color;
-  long hue = pickHue(fxVars[idx][1]);
-  for(long i=0; i<numPixels; i++) {
-    alpha = getPointChaseAlpha(idx, (i + frontOffset) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + frontOffset) % numPixels, halfPeriod);
-//    alpha = getPointChaseAlpha(idx, (i + frontOffset) % numPixels, halfPeriod);
-    if (alpha > 255) alpha = 255;
-    
-    // Peaks of sine wave are white, troughs are black, mid-range
-    // values are pure hue (100% saturated).
-
-    color = hsv2rgb(hue, 255, alpha);
-    *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
-  }
-//  fxVars[idx][4] += fxVars[idx][3];
-//  fxVars[idx][4] %= 720;
-
-  // max force = half way around (360 half degrees)
-  if (!slaveMode)
-    fxVars[idx][4] = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, 360);
-//  fxVars[idx][5] = map(fsrStepFraction, 720 / numPixels, fsrStepFractionMax, 0, 720 * 2);
 }
 
 void renderEffectBluetoothLamp(byte idx) {
