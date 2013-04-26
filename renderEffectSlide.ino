@@ -1,5 +1,3 @@
-const int subPixels = 16;
-
 void renderEffectSlide(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
@@ -9,30 +7,35 @@ void renderEffectSlide(byte idx) {
     fxVars[idx][3] = 1;
     // Reverse direction half the time.
 //    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
-    fxVars[idx][4] = 0; // Current position
+    fxVars[idx][5] = 0; // Current position
     fxVars[idx][0] = 1; // Effect initialized
-    fxVars[idx][5] = subPixels * 8; // width
+    fxVars[idx][4] = subPixels * 8; // width
   }
 
   int hue = pickHue(fxVars[idx][1]);
 
   clearImage(idx);
   
-  int x = fxVars[idx][4];
-  int width = fxVars[idx][5];
+  int x = fxVars[idx][5];
+  int width = fxVars[idx][4];
   drawLine(idx, x, width, hue);
   
 //  fxVars[idx][3] += fxVars[idx][6];
 //  if (abs(fxVars[idx][6]) > 
-  if (!slaveMode)
-    fxVars[idx][3] = fixSin(720 * millis() / 10000 / 3);
-    
-  fxVars[idx][4] += fxVars[idx][3];
-  if (fxVars[idx][4] < 0)
+
+  // velocity
+  int v = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, 100);
+  
+//  if (!slaveMode)
+//    fxVars[idx][3] = fixSin(720 * millis() / 10000 / 3) / 2;
+//    
+//  fxVars[idx][4] += fxVars[idx][3];
+  fxVars[idx][5] += v;
+  if (fxVars[idx][5] < 0)
   {
-    fxVars[idx][4] += numPixels * subPixels;
+    fxVars[idx][5] += numPixels * subPixels;
   }
-  fxVars[idx][4] %= numPixels * subPixels;
+  fxVars[idx][5] %= numPixels * subPixels;
 }
 
 void drawLine(byte idx, int x, int width, int hue)

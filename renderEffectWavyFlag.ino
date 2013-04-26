@@ -16,7 +16,7 @@ void renderEffectWavyFlag(byte idx) {
   long i, sum, s, x;
   int  idx1, idx2, a, b;
   if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = false;
+    gammaRespondsToForce = true;
     fxVars[idx][1] = 720 + random(720); // Wavyness
     fxVars[idx][2] = 4 + random(10);    // Wave speed
     fxVars[idx][3] = 200 + random(200); // Wave 'puckeryness'

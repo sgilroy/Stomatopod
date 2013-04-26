@@ -3,6 +3,36 @@ void renderEffectBlast(byte idx) {
     gammaRespondsToForce = false;
     fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Frame-to-frame increment (speed) -- may be positive or negative,
+    // but magnitude shouldn't be so small as to be boring.
+    fxVars[idx][3] = 1;
+    // Reverse direction half the time.
+//    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
+//    fxVars[idx][4] = 0; // Current position
+    fxVars[idx][0] = 1; // Effect initialized
+    fxVars[idx][4] = subPixels * 4; // width
+  }
+
+  int hue = pickHue(fxVars[idx][1]);
+
+  clearImage(idx);
+  
+  const int centeringOffset = 7;
+  int width = fxVars[idx][4];
+//  int x = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, (numPixels - width) * subPixels / 2) + subPixels * centeringOffset;
+
+// enclosure R seems to use front as back and back as front
+
+  int x = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, (numPixels) * subPixels / 2 - width) + subPixels * centeringOffset;
+//  int x = map(backFsrStepFraction, 0, fsrStepFractionMax, 0, (numPixels) * subPixels / 2 - width) + subPixels * centeringOffset;
+  drawLine(idx, x, width, hue);
+  drawLine(idx, (numPixels + centeringOffset) * subPixels - x, width, hue);
+}  
+
+void renderEffectBlast2(byte idx) {
+  if(fxVars[idx][0] == 0) { // Initialize effect?
+    gammaRespondsToForce = false;
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
+    // Frame-to-frame increment (speed) -- may be positive or negative,
     // but magnitude shouldn't be so small as to be boring.  It's generally
     // still less than a full pixel per frame, making motion very smooth.
 //    fxVars[idx][3] = 1 + random(720) / numPixels;
@@ -42,6 +72,7 @@ void renderEffectBlast(byte idx) {
   // max force = half way around (360 half degrees)
   if (!slaveMode)
     fxVars[idx][4] = map(frontFsrStepFraction, 0, fsrStepFractionMax, 0, 360);
+//    fxVars[idx][4] = map(backFsrStepFraction, 0, fsrStepFractionMax, 0, 360);
 //  fxVars[idx][5] = map(fsrStepFraction, 720 / numPixels, fsrStepFractionMax, 0, 720 * 2);
 }
 

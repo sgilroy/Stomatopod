@@ -93,7 +93,9 @@ const int numPixels = 42; // shoes
 // would be a pile of malloc() calls later.
 
 // Index (0 based) of the pixel at the front of the shoe. Used by some of the render effects.
-int frontOffset = 0;
+int frontOffset = 4;
+
+const int subPixels = 16;
 
 // Instantiate LED strips; arguments are the total number of pixels in strip,
 // the data pin number and clock pin number:
@@ -119,6 +121,10 @@ byte imgData[2][numPixels * 3], // Data for 2 strips worth of imagery
 int  fxVars[3][50],             // Effect instance variables (explained later)
      tCounter   = -1,           // Countdown to next transition
      transitionTime;            // Duration (in frames) of current transition
+     
+byte statusOverlay[numPixels * 3],
+    statusOverlayAlpha[numPixels];
+const int statusOverlayOffset = 36;
 
 const static byte SYNCHRONIZED_EFFECT_BUFFERS = 3;
 const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
@@ -160,19 +166,19 @@ long pickHue(long currentHue);
 // each of these appears later in this file.  Just a few to start with...
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
-  renderEffectSlide,
-  renderEffectClickVisualization,
-  renderEffectMonochromeChase,
-  renderEffectBlast,
   renderEffectSolidFill,
+  renderEffectSlide,
+  renderEffectBlast,
+//  renderEffectClickVisualization,
+  renderEffectMonochromeChase,
   renderEffectRainbow,
   renderEffectSineWaveChase,
-  renderEffectPointChase,
-  renderEffectNewtonsCradle,
+//  renderEffectPointChase,
+//  renderEffectNewtonsCradle,
   renderEffectWavyFlag,
-  renderEffectThrob,
+//  renderEffectThrob,
   renderEffectBounce,
-  renderEffectPressureVis,
+//  renderEffectPressureVis,
 
 //  renderEffectDebug1
 },
@@ -207,7 +213,7 @@ int fsrReadings[numFsrReadings];
 
 ClickButtonFsr frontButton = ClickButtonFsr(frontFsrPin, 300, 500);
 int frontButtonClicks = 0;
-ClickButtonFsr backButton = ClickButtonFsr(backFsrPin, 300, 500);
+ClickButtonFsr backButton = ClickButtonFsr(backFsrPin, 700, 800);
 int backButtonClicks = 0;
 int clickVisualization = 0;
 
@@ -297,6 +303,8 @@ void setup() {
   // Initialize random number generator from a floating analog input.
   randomSeed(analogRead(0));
   memset(imgData, 0, sizeof(imgData)); // Clear image data
+  memset(statusOverlay, 0, sizeof(statusOverlay));
+  memset(statusOverlayAlpha, 0, sizeof(statusOverlayAlpha));
   fxVars[backImgIdx][0] = 1;           // Mark back image as initialized
 
   if (startWithTransition) {
@@ -551,6 +559,22 @@ void callback() {
       strip.setPixelColor(i, r, g, b);
     }
   }
+  
+  for(i=0; i<numPixels; i++) {
+    if (statusOverlayAlpha[i] > 0)
+      statusOverlayAlpha[i]--;
+      
+    int alpha = statusOverlayAlpha[i] + 1; // 1-256 (allows shift rather than divide)
+    byte *overlayPtr = &statusOverlay[i * numPixels];
+    if (alpha > 1) {
+      // See note above re: r, g, b vars.
+      r = gamma(*overlayPtr++ * alpha >> 8);
+      g = gamma(*overlayPtr++ * alpha >> 8);
+      b = gamma(*overlayPtr++ * alpha >> 8);
+      strip.setPixelColor(i, r, g, b);
+    }
+  }
+  
 
   if (!slaveMode)
   {
@@ -597,25 +621,45 @@ void handleClicks()
       clickVisualization--;
     }
     
-    frontButtonClicks = 0;
-  }
-
-  if (backButtonClicks != 0)
-  {
     byte frontImgIdx = 1 - backImgIdx;
-    if (backButtonClicks == 2)
+    if (frontButtonClicks == 2)
     {
       tCounter = 0;
       autoTransition = false;
       startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
     }
-    else if (backButtonClicks == 3)
+    else if (frontButtonClicks == 3)
     {
       tCounter = -1;
       autoTransition = true;
     }
-    
+
+    showClicks(1, frontButtonClicks);
+    frontButtonClicks = 0;
+  }
+
+  if (backButtonClicks != 0)
+  {
+    showClicks(-1, backButtonClicks);
     backButtonClicks = 0;
+  }
+}
+
+void showClicks(int direction, int clicks)
+{
+  for (int i = 0; i < abs(clicks); i++)
+  {
+    int j = statusOverlayOffset + direction + i * direction;
+    statusOverlayAlpha[j] = 255;
+    byte *ptr = &statusOverlay[j * numPixels];
+    if (clicks > 0)
+    {
+      *ptr++ = 255; *ptr++ = 255; *ptr++ = 255;
+    }
+    else
+    {
+      *ptr++ = 0; *ptr++ = 0; *ptr++ = 255;
+    }
   }
 }
 
@@ -769,7 +813,7 @@ void renderEffectDebug1(byte idx) {
 // practically part of the Geneva Convention by now.
 void renderEffectRainbow(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
-    gammaRespondsToForce = false;
+    gammaRespondsToForce = true;
     // Number of repetitions (complete loops around color wheel); any
     // more than 4 per meter just looks too chaotic and un-rainbow-like.
     // Store as hue 'distance' around complete belt:
