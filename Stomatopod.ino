@@ -126,6 +126,8 @@ byte statusOverlay[numPixels * 3],
     statusOverlayAlpha[numPixels];
 const int statusOverlayOffset = 36;
 
+boolean visualizeClicks = false;
+
 const static byte SYNCHRONIZED_EFFECT_BUFFERS = 3;
 const static byte SYNCHRONIZED_EFFECT_VARIABLES = 5;
 
@@ -155,6 +157,7 @@ void renderAlphaFade(void);
 void renderAlphaWipe(void);
 void renderAlphaDither(void);
 void callback();
+byte gamma(byte x, boolean useForce);
 byte gamma(byte x);
 long hsv2rgb(long h, byte s, byte v);
 char fixSin(int angle);
@@ -211,9 +214,9 @@ int fsrReadingIndex = 0;
 int fsrReadings[numFsrReadings];
 #endif
 
-ClickButtonFsr frontButton = ClickButtonFsr(frontFsrPin, 300, 500);
+ClickButtonFsr frontButton = ClickButtonFsr(frontFsrPin, 500, 600);
 int frontButtonClicks = 0;
-ClickButtonFsr backButton = ClickButtonFsr(backFsrPin, 700, 800);
+ClickButtonFsr backButton = ClickButtonFsr(backFsrPin, 500, 600);
 int backButtonClicks = 0;
 int clickVisualization = 0;
 
@@ -561,16 +564,16 @@ void callback() {
   }
   
   for(i=0; i<numPixels; i++) {
-    if (statusOverlayAlpha[i] > 0)
+    if (statusOverlayAlpha[i] > 0) {
       statusOverlayAlpha[i]--;
       
-    int alpha = statusOverlayAlpha[i] + 1; // 1-256 (allows shift rather than divide)
-    byte *overlayPtr = &statusOverlay[i * numPixels];
-    if (alpha > 1) {
+      int alpha = statusOverlayAlpha[i] + 1; // 1-256 (allows shift rather than divide)
+      byte *overlayPtr = &statusOverlay[i * 3];
+
       // See note above re: r, g, b vars.
-      r = gamma(*overlayPtr++ * alpha >> 8);
-      g = gamma(*overlayPtr++ * alpha >> 8);
-      b = gamma(*overlayPtr++ * alpha >> 8);
+      r = gamma(*overlayPtr++ * alpha >> 8, false);
+      g = gamma(*overlayPtr++ * alpha >> 8, false);
+      b = gamma(*overlayPtr++ * alpha >> 8, false);
       strip.setPixelColor(i, r, g, b);
     }
   }
@@ -621,25 +624,25 @@ void handleClicks()
       clickVisualization--;
     }
     
-    byte frontImgIdx = 1 - backImgIdx;
-    if (frontButtonClicks == 2)
-    {
-      tCounter = 0;
-      autoTransition = false;
-      startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
-    }
-    else if (frontButtonClicks == 3)
-    {
-      tCounter = -1;
-      autoTransition = true;
-    }
-
     showClicks(1, frontButtonClicks);
     frontButtonClicks = 0;
   }
 
   if (backButtonClicks != 0)
   {
+    byte frontImgIdx = 1 - backImgIdx;
+    if (backButtonClicks == 2)
+    {
+      tCounter = 0;
+      autoTransition = false;
+      startImageTransition(frontImgIdx, (fxIdx[frontImgIdx] + 1) % (sizeof(renderEffect) / sizeof(renderEffect[0])), fps / 2);
+    }
+    else if (backButtonClicks == 3)
+    {
+      tCounter = -1;
+      autoTransition = true;
+    }
+
     showClicks(-1, backButtonClicks);
     backButtonClicks = 0;
   }
@@ -647,18 +650,21 @@ void handleClicks()
 
 void showClicks(int direction, int clicks)
 {
-  for (int i = 0; i < abs(clicks); i++)
+  if (visualizeClicks)
   {
-    int j = statusOverlayOffset + direction + i * direction;
-    statusOverlayAlpha[j] = 255;
-    byte *ptr = &statusOverlay[j * numPixels];
-    if (clicks > 0)
+    for (int i = 0; i < abs(clicks); i++)
     {
-      *ptr++ = 255; *ptr++ = 255; *ptr++ = 255;
-    }
-    else
-    {
-      *ptr++ = 0; *ptr++ = 0; *ptr++ = 255;
+      int j = (direction == -1 ? 0 : statusOverlayOffset) + i * -direction;
+      statusOverlayAlpha[j] = 255;
+      byte *ptr = &statusOverlay[j * 3];
+      if (clicks > 0)
+      {
+        *ptr++ = 255; *ptr++ = 255; *ptr++ = 255;
+      }
+      else
+      {
+        *ptr++ = 0; *ptr++ = 0; *ptr++ = 255;
+      }
     }
   }
 }

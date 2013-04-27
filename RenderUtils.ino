@@ -126,11 +126,15 @@ PROGMEM prog_uchar gammaTable[]  = {
 // utility code...didn't want that huge table distracting or intimidating
 // folks before even getting into the real substance of the program, and
 // the compiler permits forward references to functions but not data.
-inline byte gamma(byte x) {
-  if (gammaRespondsToForce && forceResistorInUse)
+inline byte gamma(byte x, boolean useForce) {
+  if (useForce && forceResistorInUse)
     return pgm_read_byte(&gammaTable[x]) * frontFsrStepFraction / fsrStepFractionMax >> brightnessLimiter;
   else
     return pgm_read_byte(&gammaTable[x]) >> brightnessLimiter;
+}
+
+inline byte gamma(byte x) {
+  return gamma(x, gammaRespondsToForce);
 }
 
 // Fixed-point colorspace conversion: HSV (hue-saturation-value) to RGB.
