@@ -34,15 +34,15 @@
 // programmers may have an easier time starting out with the 'strandtest'
 // program also included with the LPD8806 library.
 
-#include <Adafruit_NeoPixel.h>
+#include <Adafruit_NeoPixel.h> // https://github.com/adafruit/Adafruit_NeoPixel
 //#include <avr/pgmspace.h>
 //#include "SPI.h"
 //#include "LPD8806.h"
-#include <TimerOne.h>
-#include <EasyTransfer.h>
-#include <ClickButtonFsr.h>
-#include <Streaming.h>
-#include <EEPROMEx.h>
+#include <TimerOne.h> // http://playground.arduino.cc/code/timer1
+#include <EasyTransfer.h> // https://github.com/madsci1016/Arduino-EasyTransfer
+#include <ClickButtonFsr.h> // https://github.com/sgilroy/ClickButtonFsr
+#include <Streaming.h> // http://arduiniana.org/libraries/streaming/
+#include <EEPROMEx.h> // http://thijs.elenbaas.net/downloads/?did=6
 
 #define debugSettings true
 
